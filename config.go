@@ -15,6 +15,7 @@ const (
 	ParamApp           = "app"
 	ParamStaticFolders = "static-folder"
 	FpmPoolSize        = "fpm-pool-size"
+	AccessLog          = "access-log"
 	ParamVerbose       = "verbose"
 )
 
@@ -25,6 +26,7 @@ type Config struct {
 	App           string   // application name
 	StaticFolders []string // list of static folders
 	FpmPoolSize   int      // number of connections to php-fpm
+	AccessLog     bool     // enable access logging
 	Verbose       bool     // print debug output
 
 	logger *log.Logger
@@ -37,6 +39,7 @@ func DefineParams(cmd *cobra.Command) {
 	cmd.PersistentFlags().String(ParamApp, "php-app", "Application name")
 	cmd.PersistentFlags().StringArrayP(ParamStaticFolders, "f", []string{}, fmt.Sprintf("Static folder in format %q", "/home/path/to/folder:/endpoint/prefix"))
 	cmd.PersistentFlags().Int(FpmPoolSize, 32, "Size of the FPM pool")
+	cmd.PersistentFlags().Bool(AccessLog, false, "Enable access logging")
 	cmd.PersistentFlags().BoolP(ParamVerbose, "v", false, "Print debug output")
 
 	_ = cmd.MarkPersistentFlagRequired(ParamSocket)
@@ -51,6 +54,7 @@ func LoadConfig(set *pflag.FlagSet, logger *log.Logger) *Config {
 		App:           ignoreError(set.GetString(ParamApp)),
 		StaticFolders: ignoreError(set.GetStringArray(ParamStaticFolders)),
 		FpmPoolSize:   ignoreError(set.GetInt(FpmPoolSize)),
+		AccessLog:     ignoreError(set.GetBool(AccessLog)),
 		Verbose:       ignoreError(set.GetBool(ParamVerbose)),
 
 		logger: logger,
@@ -64,6 +68,7 @@ func (c *Config) LogConfig() {
 	c.logger.Infof("[CONFIG] App: %s", c.App)
 	c.logger.Infof("[CONFIG] Static folders: %s", strings.Join(c.StaticFolders, ","))
 	c.logger.Infof("[CONFIG] FPM pool size: %d", c.FpmPoolSize)
+	c.logger.Infof("[CONFIG] Access logging: %t", c.AccessLog)
 	c.logger.Infof("[CONFIG] Verbose: %t", c.Verbose)
 }
 

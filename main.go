@@ -38,9 +38,10 @@ func main() {
 				logger.Fatalf("could not create FPM client: %s", err)
 			}
 
+			accessLogger := NewAccessLogger(config, logger)
 			monitor := NewMonitor(logger)
 			fpmClient := NewFpmClient(fCgiClient, config, monitor, logger)
-			svr := NewHttpServer(config, fpmClient, monitor, logger)
+			svr := NewHttpServer(config, fpmClient, accessLogger, monitor, logger)
 
 			config.LogConfig()
 			svr.StartServer()

@@ -40,7 +40,13 @@ func (lrw *LoggingResponseWriter) WriteHeader(code int) {
 	lrw.statusCode = code
 }
 
-func NewHttpServer(config *Config, fpmClient *FpmClient, monitor *Monitor, logger *logrus.Logger) *HttpServer {
+func NewHttpServer(
+	config *Config,
+	fpmClient *FpmClient,
+	accessLogger *AccessLogger,
+	monitor *Monitor,
+	logger *logrus.Logger,
+) *HttpServer {
 	router := http.NewServeMux()
 
 	// public files
@@ -86,6 +92,8 @@ func NewHttpServer(config *Config, fpmClient *FpmClient, monitor *Monitor, logge
 	router.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		start := time.Now()
 		fpmResponse, err := fpmClient.Call(request)
+
+		accessLogger.LogFpm(request, fpmResponse)
 
 		if err != nil {
 			logger.Errorf("could not call FPM: %s\n", err)
