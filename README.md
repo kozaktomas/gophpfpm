@@ -10,10 +10,10 @@ Flags:
       --access-log                  Enable access logging
       --app string                  Application name (default "php-app")
       --fpm-pool-size int           Size of the FPM pool (default 32)
-  -h, --help                        help for gofpmproxy
-      --index-file string           Path to index.php script in the PHP-FPM container (default "i")
+  -h, --help                        help for gophpfpm
+  -i, --index-file string           Path to index.php script in the PHP-FPM container
   -p, --port int                    Go FPM proxy port (default 8080)
-      --socket string               Path to PHP-FPM UNIX Socket (default "s")
+  -s, --socket string               Path to PHP-FPM UNIX Socket
   -f, --static-folder stringArray   Static folder in format "/home/path/to/folder:/endpoint/prefix"
   -v, --verbose                     Print debug output
 ```
