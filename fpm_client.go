@@ -54,7 +54,7 @@ func (fpm *FpmClient) Call(request *http.Request) (*ResponseData, error) {
 			// do not propagate protected headers
 			_, found := protectedHeadersInbound[h]
 			if !found {
-				params[fmt.Sprintf("HTTP_%s", name)] = header
+				params[fmt.Sprintf("HTTP_%s", strings.ToUpper(name))] = header
 			}
 		}
 	}
