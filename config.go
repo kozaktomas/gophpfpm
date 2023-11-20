@@ -34,8 +34,8 @@ type Config struct {
 
 func DefineParams(cmd *cobra.Command) {
 	cmd.PersistentFlags().IntP(ParamPort, "p", 8080, "Go FPM proxy port")
-	cmd.PersistentFlags().String(ParamSocket, "s", "Path to PHP-FPM UNIX Socket")
-	cmd.PersistentFlags().String(ParamIndex, "i", "Path to index.php script in the PHP-FPM container")
+	cmd.PersistentFlags().StringP(ParamSocket, "s", "", "Path to PHP-FPM UNIX Socket")
+	cmd.PersistentFlags().StringP(ParamIndex, "i", "", "Path to index.php script in the PHP-FPM container")
 	cmd.PersistentFlags().String(ParamApp, "php-app", "Application name")
 	cmd.PersistentFlags().StringArrayP(ParamStaticFolders, "f", []string{}, fmt.Sprintf("Static folder in format %q", "/home/path/to/folder:/endpoint/prefix"))
 	cmd.PersistentFlags().Int(FpmPoolSize, 32, "Size of the FPM pool")
