@@ -23,9 +23,9 @@ func main() {
 	logger.SetLevel(log.DebugLevel)
 
 	rootCmd := &cobra.Command{
-		Use:   "gofpmproxy",
+		Use:   "gophpfpm",
 		Short: "Super fast HTTP proxy server for PHP FPM",
-		Long:  `Long description`,
+		Long:  `Web server for PHP written in Go. It's compatible with PHP-FPM communicating via FastCGI protocol using unix socket.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			config := LoadConfig(cmd.PersistentFlags(), logger)
 			logger.SetLevel(log.InfoLevel)
