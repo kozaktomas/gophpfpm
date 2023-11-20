@@ -193,6 +193,9 @@ func (c *FCgiConnection) sendHeader(r FCgiRequest) error {
 }
 
 func (c *FCgiConnection) sendParams(r FCgiRequest) error {
+	if len(r.Body) > 0 {
+		r.Params["CONTENT_LENGTH"] = strconv.Itoa(len(r.Body))
+	}
 	for name, value := range r.Params {
 		buf := bytes.NewBuffer([]byte{})
 
