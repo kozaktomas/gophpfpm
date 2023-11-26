@@ -38,10 +38,11 @@ func (accessLogger *AccessLogger) LogFpm(request *http.Request, response *Respon
 	}
 
 	accessLogger.logger.WithFields(logrus.Fields{
-		"method": request.Method,
-		"query":  request.URL.Query(),
-		"status": response.Status,
-		"route":  response.Route,
-		"size":   len(response.Body),
+		"method":   request.Method,
+		"query":    request.URL.Query(),
+		"status":   response.Status,
+		"route":    response.Route,
+		"size":     len(response.Body),
+		"full_url": request.URL.String(),
 	}).Info("access")
 }
