@@ -42,6 +42,8 @@ func (fpm *FpmClient) Call(request *http.Request) (*ResponseData, error) {
 	params := map[string]string{
 		"SCRIPT_FILENAME": fpm.config.IndexFile,
 		"SERVER_SOFTWARE": "gophpfpm/1.0.0",
+		"SERVER_NAME":     request.Host,
+		"SERVER_PORT":     fmt.Sprintf("%d", fpm.config.Port),
 		"REQUEST_URI":     request.URL.RequestURI(),
 		"QUERY_STRING":    request.URL.Query().Encode(),
 		"REQUEST_METHOD":  request.Method,
