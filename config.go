@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"strings"
+	"time"
 )
 
 const (
@@ -15,19 +16,21 @@ const (
 	ParamApp           = "app"
 	ParamStaticFolders = "static-folder"
 	FpmPoolSize        = "fpm-pool-size"
+	Timeout            = "timeout"
 	AccessLog          = "access-log"
 	ParamVerbose       = "verbose"
 )
 
 type Config struct {
-	Port          int      // port to listen on
-	Socket        string   // path to php-fpm socket
-	IndexFile     string   // index.php file path
-	App           string   // application name
-	StaticFolders []string // list of static folders
-	FpmPoolSize   int      // number of connections to php-fpm
-	AccessLog     bool     // enable access logging
-	Verbose       bool     // print debug output
+	Port          int           // port to listen on
+	Socket        string        // path to php-fpm socket
+	IndexFile     string        // index.php file path
+	App           string        // application name
+	StaticFolders []string      // list of static folders
+	FpmPoolSize   int           // number of connections to php-fpm
+	Timeout       time.Duration // timeout for connection
+	AccessLog     bool          // enable access logging
+	Verbose       bool          // print debug output
 
 	logger *log.Logger
 }
@@ -39,6 +42,7 @@ func DefineParams(cmd *cobra.Command) {
 	cmd.PersistentFlags().String(ParamApp, "php-app", "Application name")
 	cmd.PersistentFlags().StringArrayP(ParamStaticFolders, "f", []string{}, fmt.Sprintf("Static folder in format %q", "/home/path/to/folder:/endpoint/prefix"))
 	cmd.PersistentFlags().Int(FpmPoolSize, 32, "Size of the FPM pool")
+	cmd.PersistentFlags().Duration("timeout", 30*time.Second, "Timeout for connection [10s, 30s, 1m]")
 	cmd.PersistentFlags().Bool(AccessLog, false, "Enable access logging")
 	cmd.PersistentFlags().BoolP(ParamVerbose, "v", false, "Print debug output")
 
@@ -46,7 +50,12 @@ func DefineParams(cmd *cobra.Command) {
 	_ = cmd.MarkPersistentFlagRequired(ParamIndex)
 }
 
-func LoadConfig(set *pflag.FlagSet, logger *log.Logger) *Config {
+func LoadConfig(set *pflag.FlagSet, logger *log.Logger) (*Config, error) {
+	timeout, err := set.GetDuration("timeout")
+	if err != nil {
+		return nil, fmt.Errorf("could not load %q: %s", Timeout, err)
+	}
+
 	return &Config{
 		Port:          ignoreError(set.GetInt(ParamPort)),
 		Socket:        ignoreError(set.GetString(ParamSocket)),
@@ -54,11 +63,12 @@ func LoadConfig(set *pflag.FlagSet, logger *log.Logger) *Config {
 		App:           ignoreError(set.GetString(ParamApp)),
 		StaticFolders: ignoreError(set.GetStringArray(ParamStaticFolders)),
 		FpmPoolSize:   ignoreError(set.GetInt(FpmPoolSize)),
+		Timeout:       timeout,
 		AccessLog:     ignoreError(set.GetBool(AccessLog)),
 		Verbose:       ignoreError(set.GetBool(ParamVerbose)),
 
 		logger: logger,
-	}
+	}, nil
 }
 
 func (c *Config) LogConfig() {
@@ -67,6 +77,7 @@ func (c *Config) LogConfig() {
 	c.logger.Infof("[CONFIG] Index file %s", c.IndexFile)
 	c.logger.Infof("[CONFIG] App: %s", c.App)
 	c.logger.Infof("[CONFIG] Static folders: %s", strings.Join(c.StaticFolders, ","))
+	c.logger.Infof("[CONFIG] Timeout: %s", c.Timeout)
 	c.logger.Infof("[CONFIG] FPM pool size: %d", c.FpmPoolSize)
 	c.logger.Infof("[CONFIG] Access logging: %t", c.AccessLog)
 	c.logger.Infof("[CONFIG] Verbose: %t", c.Verbose)

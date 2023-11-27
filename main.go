@@ -27,7 +27,10 @@ func main() {
 		Short: "Super fast HTTP proxy server for PHP FPM",
 		Long:  `Web server for PHP written in Go. It's compatible with PHP-FPM communicating via FastCGI protocol using unix socket.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			config := LoadConfig(cmd.PersistentFlags(), logger)
+			config, err := LoadConfig(cmd.PersistentFlags(), logger)
+			if err != nil {
+				logger.Fatalf("could not load config: %s", err)
+			}
 			logger.SetLevel(log.InfoLevel)
 			if config.Verbose {
 				logger.SetLevel(log.DebugLevel)
@@ -42,6 +45,7 @@ func main() {
 			monitor := NewMonitor(logger)
 			fpmClient := NewFpmClient(fCgiClient, config, monitor, logger)
 			svr := NewHttpServer(config, fpmClient, accessLogger, monitor, logger)
+			svr.PrepareServer()
 
 			config.LogConfig()
 			svr.StartServer()

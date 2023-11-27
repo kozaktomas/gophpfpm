@@ -16,10 +16,13 @@ import (
 type HttpServer struct {
 	Port int
 
-	fpmClient *FpmClient
-	srv       *http.Server
-	config    *Config
-	logger    *logrus.Logger
+	router       *http.ServeMux
+	fpmClient    *FpmClient
+	srv          *http.Server
+	config       *Config
+	accessLogger *AccessLogger
+	monitor      *Monitor
+	logger       *logrus.Logger
 }
 
 // LoggingResponseWriter is a wrapper around an http.ResponseWriter that
@@ -49,17 +52,30 @@ func NewHttpServer(
 ) *HttpServer {
 	router := http.NewServeMux()
 
-	// public files
-	// todo: optional
-	// todo: configuration with folders
+	return &HttpServer{
+		Port:      config.Port,
+		router:    router,
+		fpmClient: fpmClient,
+		srv: &http.Server{
+			Addr:    fmt.Sprintf(":%d", config.Port),
+			Handler: router,
+		},
+		config:       config,
+		accessLogger: accessLogger,
+		monitor:      monitor,
+		logger:       logger,
+	}
+}
+
+func (hs *HttpServer) PrepareServer() {
 	staticMiddleWare := func(endpointPrefix string, next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			lrw := NewLoggingResponseWriter(w)
 			next.ServeHTTP(lrw, r)
-			monitor.HttpDurationHistogram.
+			hs.monitor.HttpDurationHistogram.
 				WithLabelValues(
-					config.App,
+					hs.config.App,
 					TypeHttp,
 					r.Method,
 					fmt.Sprintf("%d", lrw.statusCode),
@@ -69,51 +85,63 @@ func NewHttpServer(
 		})
 	}
 
-	for _, staticFolder := range config.StaticFolders {
+	for _, staticFolder := range hs.config.StaticFolders {
 		parts := strings.Split(staticFolder, ":")
 		if len(parts) != 2 {
-			logger.Fatalf("invalid static folder definition: %s", staticFolder)
+			hs.logger.Fatalf("invalid static folder definition: %s", staticFolder)
 		}
 		fs := http.FileServer(http.Dir(parts[0]))
 		prefix := fmt.Sprintf("%s/", parts[1])
-		router.Handle(prefix, staticMiddleWare(prefix, http.StripPrefix(parts[1], fs)))
+		hs.router.Handle(prefix, staticMiddleWare(prefix, http.StripPrefix(parts[1], fs)))
 	}
 
 	// prometheus metrics handler
-	router.Handle("/metrics", promhttp.HandlerFor(
-		monitor.Registry,
+	hs.router.Handle("/metrics", promhttp.HandlerFor(
+		hs.monitor.Registry,
 		promhttp.HandlerOpts{
 			EnableOpenMetrics: true,
-			Registry:          monitor.Registry,
+			Registry:          hs.monitor.Registry,
 		},
 	))
 
 	// default route to handle anything else
-	router.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
+	hs.router.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		start := time.Now()
-		fpmResponse, err := fpmClient.Call(request)
 
-		accessLogger.LogFpm(request, fpmResponse)
+		var err error
+		var fpmErr error
+		var fpmResponse *ResponseData
 
-		if err != nil {
-			logger.Errorf("could not call FPM: %s\n", err)
-			writer.WriteHeader(http.StatusInternalServerError)
-			_, writeError := writer.Write([]byte("Internal server error"))
-			if writeError != nil {
-				// should not happen
-				logger.Errorf("could not write response body: %s\n", err)
-			}
-			monitor.HttpDurationHistogram.
-				WithLabelValues(
-					config.App,
-					TypeHttp,
-					request.Method,
-					fmt.Sprintf("%d", http.StatusInternalServerError),
-					"",
-				).
-				Observe(time.Since(start).Seconds())
+		worker, cancel := context.WithCancel(context.Background())
+		ctx, _ := context.WithTimeout(context.Background(), hs.config.Timeout)
+		go func() {
+			fpmResponse, fpmErr = hs.fpmClient.Call(request)
+			cancel()
+		}()
+
+		select {
+		case <-ctx.Done():
+			// timeout hit - return 408 and stop processing
+			hs.WriteTimeout(writer, request, fmt.Errorf("timeout"), start)
+			return
+		case <-worker.Done():
+			// everything is fine
+			// fpmResponse variable is set
+		}
+
+		if fpmErr != nil {
+			hs.WriteError(writer, request, fmt.Errorf("could not call FPM: %s\n", fpmErr), start)
 			return
 		}
+
+		if fpmResponse == nil {
+			// should never happen
+			// just to be completely sure
+			hs.WriteError(writer, request, fmt.Errorf("FPM response is nil"), start)
+			return
+		}
+
+		hs.accessLogger.LogFpm(request, fpmResponse)
 
 		for name, headers := range fpmResponse.Headers {
 			for _, header := range headers {
@@ -128,13 +156,13 @@ func NewHttpServer(
 		_, err = writer.Write(fpmResponse.Body)
 		if err != nil {
 			// should not happen
-			logger.Errorf("could not write response body: %s\n", err)
+			hs.logger.Errorf("could not write response body: %s\n", err)
 			return
 		}
 
-		monitor.HttpDurationHistogram.
+		hs.monitor.HttpDurationHistogram.
 			WithLabelValues(
-				config.App,
+				hs.config.App,
 				TypeHttp,
 				request.Method,
 				fmt.Sprintf("%d", fpmResponse.Status),
@@ -142,17 +170,44 @@ func NewHttpServer(
 			).
 			Observe(time.Since(start).Seconds())
 	})
+}
 
-	return &HttpServer{
-		Port:      config.Port,
-		fpmClient: fpmClient,
-		srv: &http.Server{
-			Addr:    fmt.Sprintf(":%d", config.Port),
-			Handler: router,
-		},
-		config: config,
-		logger: logger,
+func (hs *HttpServer) WriteError(writer http.ResponseWriter, request *http.Request, err error, start time.Time) {
+	hs.logger.Errorf("server error: %s\n", err)
+	writer.WriteHeader(http.StatusInternalServerError)
+	_, writeError := writer.Write([]byte("Internal server error"))
+	if writeError != nil {
+		// should not happen
+		hs.logger.Errorf("could not write response body: %s\n", err)
 	}
+	hs.monitor.HttpDurationHistogram.
+		WithLabelValues(
+			hs.config.App,
+			TypeHttp,
+			request.Method,
+			fmt.Sprintf("%d", http.StatusInternalServerError),
+			"",
+		).
+		Observe(time.Since(start).Seconds())
+}
+
+func (hs *HttpServer) WriteTimeout(writer http.ResponseWriter, request *http.Request, err error, start time.Time) {
+	hs.logger.Infof("request timeout")
+	writer.WriteHeader(http.StatusRequestTimeout)
+	_, writeError := writer.Write([]byte("timeout"))
+	if writeError != nil {
+		// should not happen
+		hs.logger.Errorf("could not write response body: %s\n", err)
+	}
+	hs.monitor.HttpDurationHistogram.
+		WithLabelValues(
+			hs.config.App,
+			TypeHttp,
+			request.Method,
+			fmt.Sprintf("%d", http.StatusRequestTimeout),
+			"",
+		).
+		Observe(time.Since(start).Seconds())
 }
 
 func (hs *HttpServer) StartServer() {
