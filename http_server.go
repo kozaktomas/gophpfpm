@@ -3,14 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/sirupsen/logrus"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sirupsen/logrus"
 )
 
 type HttpServer struct {
@@ -113,7 +114,8 @@ func (hs *HttpServer) PrepareServer() {
 		var fpmResponse *ResponseData
 
 		worker, cancel := context.WithCancel(context.Background())
-		ctx, _ := context.WithTimeout(context.Background(), hs.config.Timeout)
+		ctx, ctxCancel := context.WithTimeout(context.Background(), hs.config.Timeout)
+		defer ctxCancel()
 		go func() {
 			fpmResponse, fpmErr = hs.fpmClient.Call(request)
 			cancel()
@@ -130,7 +132,7 @@ func (hs *HttpServer) PrepareServer() {
 		}
 
 		if fpmErr != nil {
-			hs.WriteError(writer, request, fmt.Errorf("could not call FPM: %s\n", fpmErr), start)
+			hs.WriteError(writer, request, fmt.Errorf("could not call FPM: %s", fpmErr), start)
 			return
 		}
 

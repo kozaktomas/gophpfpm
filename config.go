@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"strings"
-	"time"
 )
 
 const (

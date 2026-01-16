@@ -2,15 +2,23 @@ package main
 
 import (
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
+// FCgiClientInterface defines the interface for FastCGI client operations
+type FCgiClientInterface interface {
+	NewRequest(params map[string]string, body []byte) FCgiRequest
+	SendRequest(r FCgiRequest) (*http.Response, error)
+	Close()
+}
+
 type FpmClient struct {
-	fCgiClient *FCgiClient
+	fCgiClient FCgiClientInterface
 	config     *Config
 	monitor    *Monitor
 	logger     *logrus.Logger
@@ -24,7 +32,7 @@ type ResponseData struct {
 	Route   string // parse route from FPM response header X-App-Route
 }
 
-func NewFpmClient(fCgiClient *FCgiClient, config *Config, monitor *Monitor, logger *logrus.Logger) *FpmClient {
+func NewFpmClient(fCgiClient FCgiClientInterface, config *Config, monitor *Monitor, logger *logrus.Logger) *FpmClient {
 	return &FpmClient{
 		fCgiClient: fCgiClient,
 		config:     config,

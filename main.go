@@ -56,6 +56,4 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		logger.Fatalf("could not run root command")
 	}
-	return
-
 }
