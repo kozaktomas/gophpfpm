@@ -48,6 +48,7 @@ func (fpm *FpmClient) Call(request *http.Request) (*ResponseData, error) {
 		"QUERY_STRING":    request.URL.Query().Encode(),
 		"REQUEST_METHOD":  request.Method,
 		"CONTENT_TYPE":    request.Header.Get("Content-type"),
+		"HTTP_HOST":       request.Host,
 	}
 	// propagate http request headers through params
 	for name, headers := range request.Header {
