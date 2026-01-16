@@ -38,7 +38,7 @@ jobs:
       - name: Run linter
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v2.0.2
 
       # Login against a Docker registry except on PR
       # https://github.com/docker/login-action
