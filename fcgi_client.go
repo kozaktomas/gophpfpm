@@ -9,13 +9,14 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -111,7 +112,7 @@ func (client *FCgiClient) findConnection() *FCgiConnection {
 	for {
 		timer := time.After(1 * time.Second)
 		select {
-		case _ = <-timer:
+		case <-timer:
 			client.logger.Infof("It seems that all %q connections are busy", client.config.FpmPoolSize)
 		case conn := <-client.Pool:
 			return conn
@@ -238,7 +239,6 @@ func (c *FCgiConnection) sendBody(r FCgiRequest) error {
 
 func (c *FCgiConnection) readResponse(req FCgiRequest) (*http.Response, error) {
 	var stdout []byte
-	var stderr []byte
 
 	// read records till we find FCGI_END_REQUEST record
 	for {
@@ -262,9 +262,7 @@ func (c *FCgiConnection) readResponse(req FCgiRequest) (*http.Response, error) {
 			stdout = append(stdout, b[:respHeader.ContentLength]...)
 		}
 
-		if respHeader.Type == FCGI_STDERR {
-			stderr = append(stderr, b[:respHeader.ContentLength]...)
-		}
+		// FCGI_STDERR is read but intentionally discarded
 
 		if respHeader.Type == FCGI_END_REQUEST {
 			break
