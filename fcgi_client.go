@@ -22,8 +22,6 @@ import (
 const (
 	FCGI_VERSION = 1
 
-	FCGI_FLAG_KEEP_ALIVE = 1
-
 	FCGI_RESPONDER = 1
 
 	FCGI_BEGIN_REQUEST = 1
@@ -51,38 +49,38 @@ type FCgiRequest struct {
 }
 
 type FCgiClient struct {
-	Pool chan *FCgiConnection
+	// slots limits the number of concurrent FPM requests to config.FpmPoolSize
+	slots chan struct{}
 
 	config *Config
 	logger *log.Logger
 }
 
+// FCgiConnection is a single FastCGI connection that carries exactly one request.
 type FCgiConnection struct {
-	Conn       net.Conn
-	socketPath string
-
-	id int
+	Conn net.Conn
 }
 
+// NewFCgiClient creates a FastCGI client. Every request is sent over its own
+// connection, which is closed when the request finishes. Reusing connections
+// (FCGI_KEEP_CONN) lets unread request body bytes be parsed by PHP-FPM as a
+// new, forged FastCGI request (CVE-2026-129289, GHSA-qc49-hpvq-g2w6).
 func NewFCgiClient(config *Config, logger *log.Logger) (*FCgiClient, error) {
-	conns := make(chan *FCgiConnection, config.FpmPoolSize)
-	for i := 0; i < config.FpmPoolSize; i++ {
-		netConn, err := net.Dial("unix", config.Socket)
-		if err != nil {
-			return nil, fmt.Errorf("could not connect to FPM socket: %w", err)
-		}
-		c := &FCgiConnection{
-			Conn:       netConn,
-			socketPath: config.Socket,
-			id:         i,
-		}
-		conns <- c
+	if config.FpmPoolSize < 1 {
+		return nil, fmt.Errorf("FPM pool size must be at least 1, got %d", config.FpmPoolSize)
 	}
 
-	logger.Debugf("Pool initiated with %d connections.", config.FpmPoolSize)
+	// fail fast when the socket is not reachable at all
+	probe, err := net.Dial("unix", config.Socket)
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to FPM socket: %w", err)
+	}
+	_ = probe.Close()
+
+	logger.Debugf("FPM client allows %d concurrent requests.", config.FpmPoolSize)
 
 	return &FCgiClient{
-		Pool: conns,
+		slots: make(chan struct{}, config.FpmPoolSize),
 
 		config: config,
 		logger: logger,
@@ -107,64 +105,50 @@ func (client *FCgiClient) generateRequestId() uint16 {
 	return generated
 }
 
-// findConnection finds a free connection in the pool
-func (client *FCgiClient) findConnection() *FCgiConnection {
+// acquireSlot waits until fewer than FpmPoolSize requests are in flight
+func (client *FCgiClient) acquireSlot() {
 	for {
 		timer := time.After(1 * time.Second)
 		select {
 		case <-timer:
-			client.logger.Infof("It seems that all %q connections are busy", client.config.FpmPoolSize)
-		case conn := <-client.Pool:
-			return conn
+			client.logger.Infof("It seems that all %d FPM slots are busy", client.config.FpmPoolSize)
+		case client.slots <- struct{}{}:
+			return
 		}
 	}
 }
 
-// SendRequest sends request to FPM server
-// It will try to reconnect if connection is lost
-// It might happen when FPM server is restarted
+// SendRequest sends request to FPM server over a new connection and closes it afterwards
 func (client *FCgiClient) SendRequest(r FCgiRequest) (*http.Response, error) {
-	conn := client.findConnection()
+	client.acquireSlot()
 	defer func() {
-		client.Pool <- conn // return connection back to pool
+		<-client.slots
 	}()
 
+	netConn, err := net.Dial("unix", client.config.Socket)
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to FPM socket: %w", err)
+	}
+	defer func() {
+		_ = netConn.Close()
+	}()
+
+	if client.config.Timeout > 0 {
+		// do not let a stuck FPM worker hold the connection and the slot forever
+		_ = netConn.SetDeadline(time.Now().Add(client.config.Timeout))
+	}
+
+	conn := &FCgiConnection{Conn: netConn}
 	response, err := conn.doRequest(r)
 	if err != nil {
-		client.logger.Debugf("could not send request, reconnecting...: %v", err)
-		err := conn.reconnect()
-		if err != nil {
-			return nil, fmt.Errorf("could not reconnect: %w", err)
-		}
-		client.logger.Debugf("successfully reconnected")
-		response, err = conn.doRequest(r)
-		if err != nil {
-			return nil, fmt.Errorf("could not send the request %v: %w", r, err)
-		}
+		return nil, fmt.Errorf("could not send the request: %w", err)
 	}
 
 	return response, nil
 }
 
-// Close closes all connections in the pool
-func (client *FCgiClient) Close() {
-	for i := 0; i < client.config.FpmPoolSize; i++ {
-		conn := <-client.Pool
-		_ = conn.Conn.Close()
-	}
-}
-
-func (c *FCgiConnection) reconnect() error {
-	_ = c.Conn.Close() // close old connection - error ignored
-
-	conn, err := net.Dial("unix", c.socketPath)
-	if err != nil {
-		return fmt.Errorf("could not reconnect: %w", err)
-	}
-
-	c.Conn = conn
-	return nil // reconnect successful
-}
+// Close is a no-op: connections are closed after every request
+func (client *FCgiClient) Close() {}
 
 func (c *FCgiConnection) doRequest(r FCgiRequest) (*http.Response, error) {
 	var err error
@@ -187,7 +171,8 @@ func (c *FCgiConnection) doRequest(r FCgiRequest) (*http.Response, error) {
 }
 
 func (c *FCgiConnection) sendHeader(r FCgiRequest) error {
-	flags := byte(FCGI_FLAG_KEEP_ALIVE)
+	// no FCGI_KEEP_CONN: FPM closes the connection after the request
+	flags := byte(0)
 	role := FCGI_RESPONDER
 	data := [8]byte{byte(role >> 8), byte(role), flags}
 	return c.writeRecord(r.requestId, FCGI_BEGIN_REQUEST, data[:]) // probably delete slicing
