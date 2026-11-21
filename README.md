@@ -12,9 +12,11 @@ Flags:
       --fpm-pool-size int           Size of the FPM pool (default 32)
   -h, --help                        help for gophpfpm
   -i, --index-file string           Path to index.php script in the PHP-FPM container
+      --max-body-size int           Maximum request body size in bytes, larger requests get 413 (default 8388608)
   -p, --port int                    Go FPM proxy port (default 8080)
   -s, --socket string               Path to PHP-FPM UNIX Socket
   -f, --static-folder stringArray   Static folder in format "/home/path/to/folder:/endpoint/prefix"
+      --timeout duration            Timeout for connection [10s, 30s, 1m] (default 30s)
   -v, --verbose                     Print debug output
 ```
 
@@ -40,6 +42,13 @@ daemonize = no
 listen = /sock/php-fpm.sock
 listen.mode = 0666
 ```
+
+### FPM connections
+
+Every request is sent to PHP-FPM over its own UNIX socket connection, which is closed after the response
+(no `FCGI_KEEP_CONN`). Reusing FastCGI connections allows request smuggling into PHP-FPM
+([CVE-2026-129289](https://github.com/php/php-src/security/advisories/GHSA-qc49-hpvq-g2w6)). `--fpm-pool-size`
+limits how many requests are sent to FPM at the same time; keep it at or below `pm.max_children`.
 
 ### Static files
 

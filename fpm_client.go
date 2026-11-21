@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,9 @@ type FpmClient struct {
 	logger     *logrus.Logger
 }
 
+// ErrRequestBodyTooLarge is returned when the request body exceeds Config.MaxBodySize
+var ErrRequestBodyTooLarge = errors.New("request body too large")
+
 // ResponseData struct contains encapsulated data from fpm response
 type ResponseData struct {
 	Status  int
@@ -42,9 +46,17 @@ func NewFpmClient(fCgiClient FCgiClientInterface, config *Config, monitor *Monit
 }
 
 func (fpm *FpmClient) Call(request *http.Request) (*ResponseData, error) {
-	requestBody, err := io.ReadAll(request.Body)
+	bodyReader := io.Reader(request.Body)
+	if fpm.config.MaxBodySize > 0 {
+		// read one byte more than allowed to detect an oversized body
+		bodyReader = io.LimitReader(request.Body, fpm.config.MaxBodySize+1)
+	}
+	requestBody, err := io.ReadAll(bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("could not read request body: %w", err)
+	}
+	if fpm.config.MaxBodySize > 0 && int64(len(requestBody)) > fpm.config.MaxBodySize {
+		return nil, ErrRequestBodyTooLarge
 	}
 
 	params := map[string]string{

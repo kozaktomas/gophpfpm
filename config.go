@@ -19,6 +19,7 @@ const (
 	FpmPoolSize        = "fpm-pool-size"
 	Timeout            = "timeout"
 	AccessLog          = "access-log"
+	MaxBodySize        = "max-body-size"
 	ParamVerbose       = "verbose"
 )
 
@@ -31,6 +32,7 @@ type Config struct {
 	FpmPoolSize   int           // number of connections to php-fpm
 	Timeout       time.Duration // timeout for connection
 	AccessLog     bool          // enable access logging
+	MaxBodySize   int64         // maximum request body size in bytes passed to FPM
 	Verbose       bool          // print debug output
 
 	logger *log.Logger
@@ -45,6 +47,7 @@ func DefineParams(cmd *cobra.Command) {
 	cmd.PersistentFlags().Int(FpmPoolSize, 32, "Size of the FPM pool")
 	cmd.PersistentFlags().Duration("timeout", 30*time.Second, "Timeout for connection [10s, 30s, 1m]")
 	cmd.PersistentFlags().Bool(AccessLog, false, "Enable access logging")
+	cmd.PersistentFlags().Int64(MaxBodySize, 8<<20, "Maximum request body size in bytes, larger requests get 413")
 	cmd.PersistentFlags().BoolP(ParamVerbose, "v", false, "Print debug output")
 
 	_ = cmd.MarkPersistentFlagRequired(ParamSocket)
@@ -66,6 +69,7 @@ func LoadConfig(set *pflag.FlagSet, logger *log.Logger) (*Config, error) {
 		FpmPoolSize:   ignoreError(set.GetInt(FpmPoolSize)),
 		Timeout:       timeout,
 		AccessLog:     ignoreError(set.GetBool(AccessLog)),
+		MaxBodySize:   ignoreError(set.GetInt64(MaxBodySize)),
 		Verbose:       ignoreError(set.GetBool(ParamVerbose)),
 
 		logger: logger,
@@ -81,9 +85,10 @@ func (c *Config) LogConfig() {
 	c.logger.Infof("[CONFIG] Timeout: %s", c.Timeout)
 	c.logger.Infof("[CONFIG] FPM pool size: %d", c.FpmPoolSize)
 	c.logger.Infof("[CONFIG] Access logging: %t", c.AccessLog)
+	c.logger.Infof("[CONFIG] Max body size: %d", c.MaxBodySize)
 	c.logger.Infof("[CONFIG] Verbose: %t", c.Verbose)
 }
 
-func ignoreError[K string | bool | int | []string](value K, _ error) K {
+func ignoreError[K string | bool | int | int64 | []string](value K, _ error) K {
 	return value
 }

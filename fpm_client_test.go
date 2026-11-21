@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -301,5 +302,50 @@ func TestFpmClient_Close(t *testing.T) {
 
 	if !mock.closeCalled {
 		t.Error("Close was not called on FCgiClient")
+	}
+}
+
+func TestFpmClient_Call_MaxBodySize(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr bool
+	}{
+		{"at limit", "1234", false},
+		{"over limit", "12345", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockFCgiClient{
+				response: &http.Response{
+					StatusCode: 200,
+					Header:     http.Header{},
+					Body:       io.NopCloser(strings.NewReader("OK")),
+				},
+			}
+			config := newTestConfig()
+			config.MaxBodySize = 4
+			fpm := NewFpmClient(mock, config, newTestMonitor(), newTestLogger())
+
+			req, _ := http.NewRequest("POST", "http://example.com/", strings.NewReader(tt.body))
+			_, err := fpm.Call(req)
+
+			if tt.wantErr {
+				if !errors.Is(err, ErrRequestBodyTooLarge) {
+					t.Fatalf("err = %v, want ErrRequestBodyTooLarge", err)
+				}
+				if mock.sendCalled {
+					t.Error("oversized request must not reach FPM")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !mock.sendCalled {
+				t.Error("request within the limit must reach FPM")
+			}
+		})
 	}
 }

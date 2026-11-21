@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -131,6 +132,11 @@ func (hs *HttpServer) PrepareServer() {
 			// fpmResponse variable is set
 		}
 
+		if errors.Is(fpmErr, ErrRequestBodyTooLarge) {
+			hs.WriteStatus(writer, request, http.StatusRequestEntityTooLarge, "Request entity too large", start)
+			return
+		}
+
 		if fpmErr != nil {
 			hs.WriteError(writer, request, fmt.Errorf("could not call FPM: %s", fpmErr), start)
 			return
@@ -188,6 +194,23 @@ func (hs *HttpServer) WriteError(writer http.ResponseWriter, request *http.Reque
 			TypeHttp,
 			request.Method,
 			fmt.Sprintf("%d", http.StatusInternalServerError),
+			"",
+		).
+		Observe(time.Since(start).Seconds())
+}
+
+// WriteStatus writes a plain-text response with the given status code and records it in metrics
+func (hs *HttpServer) WriteStatus(writer http.ResponseWriter, request *http.Request, status int, message string, start time.Time) {
+	writer.WriteHeader(status)
+	if _, err := writer.Write([]byte(message)); err != nil {
+		hs.logger.Errorf("could not write response body: %s\n", err)
+	}
+	hs.monitor.HttpDurationHistogram.
+		WithLabelValues(
+			hs.config.App,
+			TypeHttp,
+			request.Method,
+			fmt.Sprintf("%d", status),
 			"",
 		).
 		Observe(time.Since(start).Seconds())
